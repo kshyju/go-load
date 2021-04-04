@@ -1,4 +1,4 @@
-# goload
+# go-load
  
 A simple load testing tool using go
 
@@ -6,7 +6,7 @@ A simple load testing tool using go
 
 
 ### Send 100 requests bing.com
-    goload -rc=100 "https://www.bing.com"
+    go-load -rc=100 "https://www.bing.com"
 
 ### Command line options
 * -rc : Specifies the request count. Ex: `-rc=1000` will issue 1000 requests

@@ -18,12 +18,12 @@ func main() {
 	flag.Parse()
 
 	var url = *urlPtr
-	if (url == "") {
+	if url == "" {
 		var tailArgs = flag.Args()
-		if (len(tailArgs) > 0) {
+		if len(tailArgs) > 0 {
 			url = tailArgs[0]
 		} else {
-			fmt.Println("Please provide the URL. Ex:goload https://www.bing.com")
+			fmt.Println("❗ Please provide the URL. Ex:goload \"https://www.bing.com\"")
 			os.Exit(3)
 		}
 	}
@@ -32,7 +32,7 @@ func main() {
 
 	var maxRequestCount = *requestCountPtr
 
-	fmt.Printf("Will send %d requests to %s \n", maxRequestCount, url)
+	fmt.Printf("📢 Will send %d requests to %s \n", maxRequestCount, url)
 
 	start := time.Now()
 	// do a warmup call
@@ -48,7 +48,7 @@ func main() {
 	end := time.Now()
 	elapsed := end.Sub(start)
 
-	fmt.Printf("Total Elapsed time %s", elapsed)
+	fmt.Printf("✨ Total Elapsed time %s", elapsed)
 }
 
 func makeRestCallAsync(url string, wg *sync.WaitGroup) {
