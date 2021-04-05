@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -13,9 +15,12 @@ import (
 
 func main() {
 
-	urlPtr := flag.String("u", "", "The URL to test")
-	requestCountPtr := flag.Int("rc", 1, "Total number of requests to send")
+	urlPtr := flag.String("u", "", "The URL to send traffic to")
+	durationPtr := flag.Int("d", 1, "Duration in seconds. Default is 1.")
+	rpsPtr := flag.Int("c", 12, "Number of connections to use per second. This is almost same as RPS. Default is 12")
 	headersPtr := flag.String("h", "", "The request headers in comma separated form")
+	bodyFileNamePtr := flag.String("body", "", "The file name which contains request body. Used for POST calls.")
+	verboseLoggingPtr := flag.Bool("v", false, "Is verbose logging enabled")
 
 	flag.Parse()
 
@@ -29,28 +34,64 @@ func main() {
 			os.Exit(3)
 		}
 	}
-	var headerString = *headersPtr
-	var maxRequestCount = *requestCountPtr
+	var headerStringCommaSeparated = *headersPtr
+	var rps = *rpsPtr
+	var duration = *durationPtr
+	var requestBodyFileName = *bodyFileNamePtr
+	var verboseLoggingEnabled = *verboseLoggingPtr
 
-	var wg sync.WaitGroup
+	// If we got a body payload file from user, user that for request Body.
+	var bodyContentToSend []byte
 
-	fmt.Printf("📢 Will send %d requests to %s \n", maxRequestCount, url)
+	if requestBodyFileName != "" {
+		content, err := ioutil.ReadFile(requestBodyFileName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		bodyContentToSend = content
+	}
 
-	client := &http.Client{}
+	tr := &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}
+	client := &http.Client{Transport: tr}
+	var mutex = &sync.Mutex{}
 	responseStatusCountMap := make(map[string]int)
 
 	start := time.Now()
 
-	// do a warmup call
-	wg.Add(1)
-	makeRestCallAsync(client, url, headerString, &wg, responseStatusCountMap)
-
-	for counter := 1; counter < maxRequestCount; counter++ {
-		wg.Add(1)
-		go makeRestCallAsync(client, url, headerString, &wg, responseStatusCountMap)
+	// Build the header dictionary if user has provided it in comma separated format.
+	var headerMap = make(map[string]string)
+	allHeaders := strings.Split(headerStringCommaSeparated, ",")
+	for _, header := range allHeaders {
+		headerStringNameAndValueArray := strings.Split(header, ":")
+		if len(headerStringNameAndValueArray) == 2 {
+			headerMap[headerStringNameAndValueArray[0]] = headerStringNameAndValueArray[1]
+		}
 	}
 
+	emojis := [10]string{"🌿", "🍁", "🌞", "🌷", "🌼", "🐱", "❄️", "🌱", "🍂", "🌴"}
+
+	fmt.Printf("📢 Will send %d requests per seconds for %d seconds to %s \n", rps, duration, url)
+	var wg sync.WaitGroup
+	for secondsCounter := 1; secondsCounter <= duration; secondsCounter++ {
+
+		for counter := 0; counter < rps; counter++ {
+			wg.Add(1)
+			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, responseStatusCountMap, verboseLoggingEnabled, mutex)
+		}
+
+		var finished = secondsCounter * rps
+		var emojiCounter = secondsCounter % 10
+
+		fmt.Printf("  %s Finished sending %d \n", emojis[emojiCounter], finished)
+		// Sleep for a second
+		time.Sleep(1 * time.Second)
+	}
 	wg.Wait()
+
 	end := time.Now()
 	elapsed := end.Sub(start)
 
@@ -61,35 +102,52 @@ func main() {
 	fmt.Printf("🎉 Total Elapsed time %s \n", elapsed)
 }
 
-func makeRestCallAsync(client *http.Client, url string, headersCommaSeparated string, wg *sync.WaitGroup, responseStatusCountMap map[string]int) {
+// Makes an HTTP call to the URL passed in.
+// If "bodyContentToSend" is not nil, we default the request method to POST.
+func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, responseStatusCountMap map[string]int, verboseLogging bool, mutex *sync.Mutex) {
 	start := time.Now()
 
-	req, _ := http.NewRequest("GET", url, nil)
-	allHeaders := strings.Split(headersCommaSeparated, ",")
+	reqBody := bytes.NewBuffer(bodyContentToSend)
+	var method = "GET"
+	if len(bodyContentToSend) > 0 {
+		method = "POST"
+	}
 
-	for _, header := range allHeaders {
-		headerStringNameAndValueArray := strings.Split(header, ":")
-		if len(headerStringNameAndValueArray) == 2 {
-			req.Header.Set(headerStringNameAndValueArray[0], headerStringNameAndValueArray[1])
+	req, _ := http.NewRequest(method, url, reqBody)
+
+	if len(headerMap) > 0 {
+		for headerName, headerValue := range headerMap {
+			req.Header.Set(headerName, headerValue)
 		}
 	}
 
+	if len(bodyContentToSend) > 0 {
+		fmt.Println("Adding content type")
+		req.Header.Set("content-type", "application/json")
+	}
+
 	var resp, httpCallError = client.Do(req)
+
 	if httpCallError == nil {
 		end := time.Now()
 		elapsed := end.Sub(start)
-		fmt.Printf("%s %s Elapsed: %s \n", url, resp.Status, elapsed)
+		if verboseLogging {
+			fmt.Printf("%s Elapsed: %s \n", resp.Status, elapsed)
+		}
 
-		val, keyPresent := responseStatusCountMap[resp.Status]
-
-		if keyPresent {
+		// Record the response status code to our dictionary so we can print the summary later.
+		mutex.Lock()
+		val, keyPresentForThisStatusCode := responseStatusCountMap[resp.Status]
+		if keyPresentForThisStatusCode {
 			responseStatusCountMap[resp.Status] = val + 1
 		} else {
 			responseStatusCountMap[resp.Status] = 1
 		}
+		mutex.Unlock()
 
 		wg.Done()
 	} else {
-		log.Fatal(httpCallError)
+		//log.Fatal(httpCallError)
+		fmt.Printf("ERROR:::: %s\n", httpCallError)
 	}
 }
