@@ -40,3 +40,10 @@ The above example is sending 2 request headers, "my-apikey" and "cookie".
 #### Sending HTTP POST request with payload from a local file
 
    go-load -c=10 -d=30 -body="C:\\temp\\my-payload.json" "http://your.app/which/accepts/http-post?foo=bar"
+
+### Upgrade/Remove
+
+#### Windows
+To update to a newer version, you need to manually delete it in windows.
+
+Go to `%GOPATH%` (type `%GOPATH%` in Start and open the directory). Go to `src` and delete the `go-load` directory under `github`. I also deleted the `go-load.exe` in bin directory in `%GOPATH%`
