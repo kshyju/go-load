@@ -146,7 +146,7 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 
 		wg.Done()
 	} else {
-		//log.Fatal(httpCallError)
-		fmt.Printf("ERROR:::: %s\n", httpCallError)
+		fmt.Printf("ERROR: %s\n", httpCallError)
+		wg.Done()
 	}
 }
