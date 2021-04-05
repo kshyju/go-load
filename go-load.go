@@ -122,7 +122,6 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 	}
 
 	if len(bodyContentToSend) > 0 {
-		fmt.Println("Adding content type")
 		req.Header.Set("content-type", "application/json")
 	}
 
