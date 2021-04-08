@@ -39,7 +39,7 @@ The above example is sending 2 request headers, "my-apikey" and "cookie".
 
 #### Sending HTTP POST request with payload from a local file
 
-   go-load -c=10 -d=30 -body="C:\\temp\\my-payload.json" "http://your.app/which/accepts/http-post?foo=bar"
+    go-load -c=10 -d=30 -body="C:\\temp\\my-payload.json" "http://your.app/which/accepts/http-post?foo=bar"
 
 ### Upgrade/Remove
 
