@@ -13,11 +13,16 @@ import (
 	"time"
 )
 
+type ResponseItem struct {
+	status  string
+	latency int64
+}
+
 func main() {
 
 	urlPtr := flag.String("u", "", "The URL to send traffic to")
 	durationPtr := flag.Int("d", 1, "Duration in seconds. Default is 1.")
-	rpsPtr := flag.Int("c", 12, "Number of connections to use per second. This is almost same as RPS. Default is 12")
+	rpsPtr := flag.Int("c", 3, "Number of connections to use per second. This is almost same as RPS. Default is 12")
 	headersPtr := flag.String("h", "", "The request headers in comma separated form")
 	bodyFileNamePtr := flag.String("body", "", "The file name which contains request body. Used for POST calls.")
 	verboseLoggingPtr := flag.Bool("v", false, "Is verbose logging enabled")
@@ -73,6 +78,7 @@ func main() {
 	}
 
 	emojis := [10]string{"🌿", "🍁", "🌞", "🌷", "🌼", "🐱", "❄️", "🌱", "🍂", "🌴"}
+	s := make([]ResponseItem, 0)
 
 	fmt.Printf("📢 Will send %d requests per seconds for %d seconds to %s \n", rps, duration, url)
 	var wg sync.WaitGroup
@@ -80,7 +86,7 @@ func main() {
 
 		for counter := 0; counter < rps; counter++ {
 			wg.Add(1)
-			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, responseStatusCountMap, verboseLoggingEnabled, mutex)
+			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, responseStatusCountMap, verboseLoggingEnabled, mutex, &s)
 		}
 
 		var finished = secondsCounter * rps
@@ -95,16 +101,28 @@ func main() {
 	end := time.Now()
 	elapsed := end.Sub(start)
 
-	fmt.Println("✨ Response codes received(count)")
-	for k, v := range responseStatusCountMap {
-		fmt.Printf("       %s: %d\n", k, v)
+	//sort.Slice(s, func(i, j int) bool { return s[i].latency < s[j].latency })
+
+	for i := 0; i < len(s); i++ {
+		ist := s[i]
+		fmt.Printf("%s %d\n", ist.status, ist.latency)
+
 	}
+
+	// fmt.Println("✨ Response codes received(count)")
+	// for k, v := range responseStatusCountMap {
+	// 	fmt.Printf("       %s: %d\n", k, v)
+	// }
+	fmt.Printf("%d\n", len(s))
 	fmt.Printf("🎉 Total Elapsed time %s \n", elapsed)
+
+	//fmt.Println("By latency:", s)
 }
 
 // Makes an HTTP call to the URL passed in.
 // If "bodyContentToSend" is not nil, we default the request method to POST.
-func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, responseStatusCountMap map[string]int, verboseLogging bool, mutex *sync.Mutex) {
+func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, responseStatusCountMap map[string]int, verboseLogging bool, mutex *sync.Mutex,
+	s *[]ResponseItem) {
 	start := time.Now()
 
 	reqBody := bytes.NewBuffer(bodyContentToSend)
@@ -133,15 +151,11 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 		if verboseLogging {
 			fmt.Printf("%s Elapsed: %s \n", resp.Status, elapsed)
 		}
+		f := ResponseItem{"200", elapsed.Milliseconds()}
 
 		// Record the response status code to our dictionary so we can print the summary later.
 		mutex.Lock()
-		val, keyPresentForThisStatusCode := responseStatusCountMap[resp.Status]
-		if keyPresentForThisStatusCode {
-			responseStatusCountMap[resp.Status] = val + 1
-		} else {
-			responseStatusCountMap[resp.Status] = 1
-		}
+		*s = append(*s, f)
 		mutex.Unlock()
 
 		wg.Done()
