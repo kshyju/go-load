@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,22 +18,11 @@ type ResponseItem struct {
 	latency int64
 }
 
-type RunSummary struct {
-	totalRequests                int
-	latencyNinetyNinePercentile  int64
-	latencyNinetyFifthPercentile int64
-	latencySeventFifthPercentile int64
-	latencyFiftyPercentile       int64
-	latencyForSlowestRequest     int64
-	latencyForFastestRequest     int64
-	responseStatusCountMap       map[string]int
-}
-
 func main() {
 
 	urlPtr := flag.String("u", "", "The URL to send traffic to")
 	durationPtr := flag.Int("d", 1, "Duration in seconds. Default is 1.")
-	rpsPtr := flag.Int("c", 1, "Number of connections to use per second. This is almost same as RPS. Default is 12")
+	rpsPtr := flag.Int("c", 3, "Number of connections to use per second. This is almost same as RPS. Default is 12")
 	headersPtr := flag.String("h", "", "The request headers in comma separated form")
 	bodyFileNamePtr := flag.String("body", "", "The file name which contains request body. Used for POST calls.")
 	verboseLoggingPtr := flag.Bool("v", false, "Is verbose logging enabled")
@@ -113,78 +101,29 @@ func main() {
 	end := time.Now()
 	elapsed := end.Sub(start)
 
+	//sort.Slice(s, func(i, j int) bool { return s[i].latency < s[j].latency })
+
+	for i := 0; i < len(s); i++ {
+		ist := s[i]
+		fmt.Printf("%s %d\n", ist.status, ist.latency)
+
+	}
+
 	// fmt.Println("✨ Response codes received(count)")
 	// for k, v := range responseStatusCountMap {
 	// 	fmt.Printf("       %s: %d\n", k, v)
 	// }
-	var summary = getRunSummary(s)
+	fmt.Printf("%d\n", len(s))
+	fmt.Printf("🎉 Total Elapsed time %s \n", elapsed)
 
-	fmt.Println("======================")
-	fmt.Println("✨ RUN SUMMARY ✨")
-	fmt.Printf("Total requests: %d\n", summary.totalRequests)
-	fmt.Printf("Total Elapsed time %s \n", elapsed)
-	fmt.Println("✨ Response codes received(count)")
-	for k, v := range summary.responseStatusCountMap {
-		fmt.Printf("       %s: %d\n", k, v)
-	}
-	fmt.Println("Latencies observed in milli seconds")
-	fmt.Printf("   99th percentile: %d\n", summary.latencyNinetyNinePercentile)
-	fmt.Printf("   95th percentile: %d\n", summary.latencyNinetyFifthPercentile)
-	fmt.Printf("   75th percentile: %d\n", summary.latencySeventFifthPercentile)
-	fmt.Printf("   50th percentile: %d\n", summary.latencyFiftyPercentile)
-	fmt.Printf("🐌 Slowest request: %d\n", summary.latencyForSlowestRequest)
-	fmt.Printf("🚀 Fastest request: %d\n", summary.latencyForFastestRequest)
-	fmt.Println("======================")
-}
-
-func getRunSummary(allResponses []ResponseItem) RunSummary {
-	var runSummary RunSummary
-
-	allResponsesSliceLength := len(allResponses)
-	runSummary.totalRequests = allResponsesSliceLength
-
-	// sort so we can pick percentile of latency
-	sort.Slice(allResponses, func(i, j int) bool { return allResponses[i].latency < allResponses[j].latency })
-
-	runSummary.latencyForFastestRequest = allResponses[0].latency
-	runSummary.latencyForSlowestRequest = allResponses[allResponsesSliceLength-1].latency
-
-	// get percentile latencies
-	runSummary.latencyNinetyNinePercentile = getPercentileLatency(allResponses, 99)
-	runSummary.latencyNinetyFifthPercentile = getPercentileLatency(allResponses, 95)
-	runSummary.latencySeventFifthPercentile = getPercentileLatency(allResponses, 75)
-	runSummary.latencyFiftyPercentile = getPercentileLatency(allResponses, 50)
-
-	// get response status code count
-	//var responseStatusCountMap map[string]int
-	var responseStatusCountMap = make(map[string]int)
-	for i := 0; i < allResponsesSliceLength; i++ {
-		response := allResponses[i]
-		val, keyPresentForThisStatusCode := responseStatusCountMap[response.status]
-		if keyPresentForThisStatusCode {
-			responseStatusCountMap[response.status] = val + 1
-		} else {
-			responseStatusCountMap[response.status] = 1
-		}
-	}
-
-	runSummary.responseStatusCountMap = responseStatusCountMap
-
-	return runSummary
-}
-
-// gets the percentile latency from the sorted (by latency slice)
-func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int) int64 {
-	sortedLatencyArrayLength := len(sortedLatencies)
-	seventyfiveItemIndex := ((sortedLatencyArrayLength * percentileAskedFor) / 100) - 1
-	return sortedLatencies[seventyfiveItemIndex].latency
+	//fmt.Println("By latency:", s)
 }
 
 // Makes an HTTP call to the URL passed in.
 // If "bodyContentToSend" is not nil, we default the request method to POST.
 func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, responseStatusCountMap map[string]int, verboseLogging bool, mutex *sync.Mutex,
 	s *[]ResponseItem) {
-	//start := time.Now()
+	start := time.Now()
 
 	reqBody := bytes.NewBuffer(bodyContentToSend)
 	var method = "GET"
@@ -203,24 +142,21 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 	if len(bodyContentToSend) > 0 {
 		req.Header.Set("content-type", "application/json")
 	}
-	mutex.Lock()
-	start := time.Now()
+
 	var resp, httpCallError = client.Do(req)
-	end := time.Now()
-	mutex.Unlock()
-	elapsed := end.Sub(start)
 
 	if httpCallError == nil {
-
+		end := time.Now()
+		elapsed := end.Sub(start)
 		if verboseLogging {
 			fmt.Printf("%s Elapsed: %s \n", resp.Status, elapsed)
 		}
-		f := ResponseItem{resp.Status, elapsed.Milliseconds()}
+		f := ResponseItem{"200", elapsed.Milliseconds()}
 
 		// Record the response status code to our dictionary so we can print the summary later.
-		//mutex.Lock()
+		mutex.Lock()
 		*s = append(*s, f)
-		//mutex.Unlock()
+		mutex.Unlock()
 
 		wg.Done()
 	} else {
