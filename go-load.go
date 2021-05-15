@@ -20,14 +20,14 @@ type ResponseItem struct {
 }
 
 type RunSummary struct {
-	totalRequests                int
-	latencyNinetyNinePercentile  int64
-	latencyNinetyFifthPercentile int64
-	latencySeventFifthPercentile int64
-	latencyFiftyPercentile       int64
-	latencyForSlowestRequest     int64
-	latencyForFastestRequest     int64
-	responseStatusCountMap       map[string]int
+	totalRequests                 int
+	latencyNinetyNinePercentile   int64
+	latencyNinetyFifthPercentile  int64
+	latencySeventyFifthPercentile int64
+	latencyFiftyPercentile        int64
+	latencyForSlowestRequest      int64
+	latencyForFastestRequest      int64
+	responseStatusCountMap        map[string]int
 }
 
 func main() {
@@ -47,7 +47,7 @@ func main() {
 		if len(tailArgs) > 0 {
 			url = tailArgs[0]
 		} else {
-			fmt.Println("❗ Please provide the URL. Ex:goload \"https://www.bing.com\"")
+			fmt.Println("❗ Please provide the URL. Ex:go-load \"https://www.bing.com\"")
 			os.Exit(3)
 		}
 	}
@@ -68,26 +68,18 @@ func main() {
 		bodyContentToSend = content
 	}
 
-	tr := &http.Transport{
+	httpTransport := &http.Transport{
 		MaxIdleConns:       10,
 		IdleConnTimeout:    30 * time.Second,
 		DisableCompression: true,
 	}
-	client := &http.Client{Transport: tr}
+	client := &http.Client{Transport: httpTransport}
 	var mutex = &sync.Mutex{}
-	responseStatusCountMap := make(map[string]int)
 
 	start := time.Now()
 
 	// Build the header dictionary if user has provided it in comma separated format.
-	var headerMap = make(map[string]string)
-	allHeaders := strings.Split(headerStringCommaSeparated, ",")
-	for _, header := range allHeaders {
-		headerStringNameAndValueArray := strings.Split(header, ":")
-		if len(headerStringNameAndValueArray) == 2 {
-			headerMap[headerStringNameAndValueArray[0]] = headerStringNameAndValueArray[1]
-		}
-	}
+	headerMap := buildHeaderDictionary(headerStringCommaSeparated)
 
 	emojis := [10]string{"🌿", "🍁", "🌞", "🌷", "🌼", "🐱", "❄️", "🌱", "🍂", "🌴"}
 	s := make([]ResponseItem, 0)
@@ -98,7 +90,7 @@ func main() {
 
 		for counter := 0; counter < rps; counter++ {
 			wg.Add(1)
-			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, responseStatusCountMap, verboseLoggingEnabled, mutex, &s)
+			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, verboseLoggingEnabled, mutex, &s)
 		}
 
 		var finished = secondsCounter * rps
@@ -130,11 +122,23 @@ func main() {
 	fmt.Println("Latencies observed in milli seconds")
 	fmt.Printf("   99th percentile: %d\n", summary.latencyNinetyNinePercentile)
 	fmt.Printf("   95th percentile: %d\n", summary.latencyNinetyFifthPercentile)
-	fmt.Printf("   75th percentile: %d\n", summary.latencySeventFifthPercentile)
+	fmt.Printf("   75th percentile: %d\n", summary.latencySeventyFifthPercentile)
 	fmt.Printf("   50th percentile: %d\n", summary.latencyFiftyPercentile)
 	fmt.Printf("🐌 Slowest request: %d\n", summary.latencyForSlowestRequest)
 	fmt.Printf("🚀 Fastest request: %d\n", summary.latencyForFastestRequest)
 	fmt.Println("======================")
+}
+
+func buildHeaderDictionary(headerStringCommaSeparated string) map[string]string {
+	var headerMap = make(map[string]string)
+	allHeaders := strings.Split(headerStringCommaSeparated, ",")
+	for _, header := range allHeaders {
+		headerStringNameAndValueArray := strings.Split(header, ":")
+		if len(headerStringNameAndValueArray) == 2 {
+			headerMap[headerStringNameAndValueArray[0]] = headerStringNameAndValueArray[1]
+		}
+	}
+	return headerMap
 }
 
 func getRunSummary(allResponses []ResponseItem) RunSummary {
@@ -152,7 +156,7 @@ func getRunSummary(allResponses []ResponseItem) RunSummary {
 	// get percentile latencies
 	runSummary.latencyNinetyNinePercentile = getPercentileLatency(allResponses, 99)
 	runSummary.latencyNinetyFifthPercentile = getPercentileLatency(allResponses, 95)
-	runSummary.latencySeventFifthPercentile = getPercentileLatency(allResponses, 75)
+	runSummary.latencySeventyFifthPercentile = getPercentileLatency(allResponses, 75)
 	runSummary.latencyFiftyPercentile = getPercentileLatency(allResponses, 50)
 
 	// get response status code count
@@ -182,7 +186,7 @@ func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int
 
 // Makes an HTTP call to the URL passed in.
 // If "bodyContentToSend" is not nil, we default the request method to POST.
-func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, responseStatusCountMap map[string]int, verboseLogging bool, mutex *sync.Mutex,
+func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, verboseLogging bool, mutex *sync.Mutex,
 	s *[]ResponseItem) {
 	//start := time.Now()
 
