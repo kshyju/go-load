@@ -28,13 +28,20 @@ type RunSummary struct {
 	latencyForSlowestRequest      int64
 	latencyForFastestRequest      int64
 	responseStatusCountMap        map[string]int
+	latencyAverage                int64
 }
+
+// DefaultDuration The default duration of the runs, in seconds.
+const DefaultDuration = 1
+
+// DefaultRPS The default number of requests to issue per second.
+const DefaultRPS = 1
 
 func main() {
 
 	urlPtr := flag.String("u", "", "The URL to send traffic to")
-	durationPtr := flag.Int("d", 1, "Duration in seconds. Default is 1.")
-	rpsPtr := flag.Int("c", 1, "Number of connections to use per second. This is almost same as RPS. Default is 12")
+	durationPtr := flag.Int("d", DefaultDuration, "Duration in seconds. Default is 1.")
+	rpsPtr := flag.Int("c", DefaultRPS, "Number of connections to use per second. This is almost same as RPS. Default is 12")
 	headersPtr := flag.String("h", "", "The request headers in comma separated form")
 	bodyFileNamePtr := flag.String("body", "", "The file name which contains request body. Used for POST calls.")
 	verboseLoggingPtr := flag.Bool("v", false, "Is verbose logging enabled")
@@ -82,7 +89,7 @@ func main() {
 	headerMap := buildHeaderDictionary(headerStringCommaSeparated)
 
 	emojis := [10]string{"🌿", "🍁", "🌞", "🌷", "🌼", "🐱", "❄️", "🌱", "🍂", "🌴"}
-	s := make([]ResponseItem, 0)
+	httpCallResponseItems := make([]ResponseItem, 0)
 
 	fmt.Printf("📢 Will send %d requests per seconds for %d seconds to %s \n", rps, duration, url)
 	var wg sync.WaitGroup
@@ -90,7 +97,7 @@ func main() {
 
 		for counter := 0; counter < rps; counter++ {
 			wg.Add(1)
-			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, verboseLoggingEnabled, mutex, &s)
+			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, verboseLoggingEnabled, mutex, &httpCallResponseItems)
 		}
 
 		var finished = secondsCounter * rps
@@ -105,11 +112,7 @@ func main() {
 	end := time.Now()
 	elapsed := end.Sub(start)
 
-	// fmt.Println("✨ Response codes received(count)")
-	// for k, v := range responseStatusCountMap {
-	// 	fmt.Printf("       %s: %d\n", k, v)
-	// }
-	var summary = getRunSummary(s)
+	var summary = getRunSummary(httpCallResponseItems)
 
 	fmt.Println("======================")
 	fmt.Println("✨ RUN SUMMARY ✨")
@@ -120,6 +123,7 @@ func main() {
 		fmt.Printf("       %s: %d\n", k, v)
 	}
 	fmt.Println("Latencies observed in milli seconds")
+	fmt.Printf("   Average: %d\n", summary.latencyNinetyNinePercentile)
 	fmt.Printf("   99th percentile: %d\n", summary.latencyNinetyNinePercentile)
 	fmt.Printf("   95th percentile: %d\n", summary.latencyNinetyFifthPercentile)
 	fmt.Printf("   75th percentile: %d\n", summary.latencySeventyFifthPercentile)
@@ -141,6 +145,7 @@ func buildHeaderDictionary(headerStringCommaSeparated string) map[string]string 
 	return headerMap
 }
 
+//getRunSummary Gets the run summary.
 func getRunSummary(allResponses []ResponseItem) RunSummary {
 	var runSummary RunSummary
 
@@ -160,19 +165,26 @@ func getRunSummary(allResponses []ResponseItem) RunSummary {
 	runSummary.latencyFiftyPercentile = getPercentileLatency(allResponses, 50)
 
 	// get response status code count
-	//var responseStatusCountMap map[string]int
+	//Creates a map for response status code and count.
 	var responseStatusCountMap = make(map[string]int)
 	for i := 0; i < allResponsesSliceLength; i++ {
 		response := allResponses[i]
-		val, keyPresentForThisStatusCode := responseStatusCountMap[response.status]
+		statusCount, keyPresentForThisStatusCode := responseStatusCountMap[response.status]
 		if keyPresentForThisStatusCode {
-			responseStatusCountMap[response.status] = val + 1
+			responseStatusCountMap[response.status] = statusCount + 1
 		} else {
 			responseStatusCountMap[response.status] = 1
 		}
 	}
+	// Find average latency
+	var latencySum int64 = 0
+	for _, item:= range allResponses {
+		latencySum = latencySum + item.latency
+	}
+	var averageLatency int64 = latencySum / int64(len(allResponses))
 
 	runSummary.responseStatusCountMap = responseStatusCountMap
+	runSummary.latencyAverage = averageLatency
 
 	return runSummary
 }
@@ -180,14 +192,19 @@ func getRunSummary(allResponses []ResponseItem) RunSummary {
 // gets the percentile latency from the sorted (by latency slice)
 func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int) int64 {
 	sortedLatencyArrayLength := len(sortedLatencies)
-	seventyfiveItemIndex := ((sortedLatencyArrayLength * percentileAskedFor) / 100) - 1
-	return sortedLatencies[seventyfiveItemIndex].latency
+	percentileItemIndex := (sortedLatencyArrayLength * percentileAskedFor) / 100
+	// if there are more than one items in result, take the previous item as the percentile value item index
+	// If there are 10 items and 75th percentile is requested, 10*75 / 100 = 7.5. We will pick 6th item
+	if sortedLatencyArrayLength > 1 {
+		percentileItemIndex = percentileItemIndex -1
+	}
+	return sortedLatencies[percentileItemIndex].latency
 }
 
 // Makes an HTTP call to the URL passed in.
 // If "bodyContentToSend" is not nil, we default the request method to POST.
 func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, verboseLogging bool, mutex *sync.Mutex,
-	s *[]ResponseItem) {
+	responseItems *[]ResponseItem) {
 	//start := time.Now()
 
 	reqBody := bytes.NewBuffer(bodyContentToSend)
@@ -219,11 +236,11 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 		if verboseLogging {
 			fmt.Printf("%s Elapsed: %s \n", resp.Status, elapsed)
 		}
-		f := ResponseItem{resp.Status, elapsed.Milliseconds()}
+		responseStatusLatencyItem := ResponseItem{resp.Status, elapsed.Milliseconds()}
 
 		// Record the response status code to our dictionary so we can print the summary later.
 		//mutex.Lock()
-		*s = append(*s, f)
+		*responseItems = append(*responseItems, responseStatusLatencyItem)
 		//mutex.Unlock()
 
 		wg.Done()
