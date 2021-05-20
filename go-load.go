@@ -133,6 +133,7 @@ func main() {
 	fmt.Println("======================")
 }
 
+//buildHeaderDictionary Builds a map for request headers to be used.
 func buildHeaderDictionary(headerStringCommaSeparated string) map[string]string {
 	var headerMap = make(map[string]string)
 	allHeaders := strings.Split(headerStringCommaSeparated, ",")
@@ -178,7 +179,7 @@ func getRunSummary(allResponses []ResponseItem) RunSummary {
 	}
 	// Find average latency
 	var latencySum int64 = 0
-	for _, item:= range allResponses {
+	for _, item := range allResponses {
 		latencySum = latencySum + item.latency
 	}
 	var averageLatency int64 = latencySum / int64(len(allResponses))
@@ -196,7 +197,7 @@ func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int
 	// if there are more than one items in result, take the previous item as the percentile value item index
 	// If there are 10 items and 75th percentile is requested, 10*75 / 100 = 7.5. We will pick 6th item
 	if sortedLatencyArrayLength > 1 {
-		percentileItemIndex = percentileItemIndex -1
+		percentileItemIndex = percentileItemIndex - 1
 	}
 	return sortedLatencies[percentileItemIndex].latency
 }
