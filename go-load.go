@@ -206,7 +206,6 @@ func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int
 // If "bodyContentToSend" is not nil, we default the request method to POST.
 func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, verboseLogging bool, mutex *sync.Mutex,
 	responseItems *[]ResponseItem) {
-	//start := time.Now()
 
 	reqBody := bytes.NewBuffer(bodyContentToSend)
 	var method = "GET"
