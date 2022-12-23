@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"sort"
@@ -44,6 +46,8 @@ func main() {
 	rpsPtr := flag.Int("c", DefaultRPS, "Number of connections to use per second. This is almost same as RPS. Default is 12")
 	headersPtr := flag.String("h", "", "The request headers in comma separated form")
 	bodyFileNamePtr := flag.String("body", "", "The file name which contains request body. Used for POST calls.")
+	fileNamePtr := flag.String("file", "", "The file name which contains file. Used for POST multipart calls.")
+	fieldFileNamePtr := flag.String("field", "", "The file name which contains file. Used for POST multipart calls.")
 	verboseLoggingPtr := flag.Bool("v", false, "Is verbose logging enabled")
 
 	flag.Parse()
@@ -62,7 +66,12 @@ func main() {
 	var rps = *rpsPtr
 	var duration = *durationPtr
 	var requestBodyFileName = *bodyFileNamePtr
+	var requestFileName = *fileNamePtr
+	var requestFieldFileName = *fieldFileNamePtr
 	var verboseLoggingEnabled = *verboseLoggingPtr
+
+	var isMultipart = false
+	var writer *multipart.Writer
 
 	// If we got a body payload file from user, user that for request Body.
 	var bodyContentToSend []byte
@@ -73,6 +82,30 @@ func main() {
 			log.Fatal(err)
 		}
 		bodyContentToSend = content
+	}
+
+	if requestFileName != "" {
+		file, _ := os.Open(requestFileName)
+		defer file.Close()
+
+		body := &bytes.Buffer{}
+		writer = multipart.NewWriter(body)
+		part, err := writer.CreateFormFile(requestFieldFileName, requestFileName)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = io.Copy(part, file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = writer.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		isMultipart = true
+		bodyContentToSend = body.Bytes()
 	}
 
 	httpTransport := &http.Transport{
@@ -97,7 +130,7 @@ func main() {
 
 		for counter := 0; counter < rps; counter++ {
 			wg.Add(1)
-			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, verboseLoggingEnabled, mutex, &httpCallResponseItems)
+			go makeRestCallAsync(client, url, bodyContentToSend, headerMap, &wg, verboseLoggingEnabled, mutex, &httpCallResponseItems, isMultipart, writer)
 		}
 
 		var finished = secondsCounter * rps
@@ -133,7 +166,7 @@ func main() {
 	fmt.Println("======================")
 }
 
-//buildHeaderDictionary Builds a map for request headers to be used.
+// buildHeaderDictionary Builds a map for request headers to be used.
 func buildHeaderDictionary(headerStringCommaSeparated string) map[string]string {
 	var headerMap = make(map[string]string)
 	allHeaders := strings.Split(headerStringCommaSeparated, ",")
@@ -146,7 +179,7 @@ func buildHeaderDictionary(headerStringCommaSeparated string) map[string]string 
 	return headerMap
 }
 
-//getRunSummary Gets the run summary.
+// getRunSummary Gets the run summary.
 func getRunSummary(allResponses []ResponseItem) RunSummary {
 	var runSummary RunSummary
 
@@ -205,7 +238,7 @@ func getPercentileLatency(sortedLatencies []ResponseItem, percentileAskedFor int
 // Makes an HTTP call to the URL passed in.
 // If "bodyContentToSend" is not nil, we default the request method to POST.
 func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte, headerMap map[string]string, wg *sync.WaitGroup, verboseLogging bool, mutex *sync.Mutex,
-	responseItems *[]ResponseItem) {
+	responseItems *[]ResponseItem, isMultipart bool, writer *multipart.Writer) {
 
 	reqBody := bytes.NewBuffer(bodyContentToSend)
 	var method = "GET"
@@ -221,8 +254,10 @@ func makeRestCallAsync(client *http.Client, url string, bodyContentToSend []byte
 		}
 	}
 
-	if len(bodyContentToSend) > 0 {
+	if len(bodyContentToSend) > 0 && !isMultipart {
 		req.Header.Set("content-type", "application/json")
+	} else if isMultipart {
+		req.Header.Add("Content-Type", writer.FormDataContentType())
 	}
 	mutex.Lock()
 	start := time.Now()
