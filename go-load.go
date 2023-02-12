@@ -122,7 +122,7 @@ func main() {
 	for k, v := range summary.responseStatusCountMap {
 		fmt.Printf("       %s: %d\n", k, v)
 	}
-	fmt.Println("Latencies observed in milli seconds")
+	fmt.Println("Latencies observed in milliseconds")
 	fmt.Printf("   Average: %d\n", summary.latencyNinetyNinePercentile)
 	fmt.Printf("   99th percentile: %d\n", summary.latencyNinetyNinePercentile)
 	fmt.Printf("   95th percentile: %d\n", summary.latencyNinetyFifthPercentile)
